@@ -9,12 +9,54 @@ image_file=""
 use_cdemu="false"
 name=""
 config_file=""
-
+statefile=""
 # needed for default config
 script_dir=$(dirname -- "$(readlink -f -- "$0";)");
 
 game_directory=${PWD} #set to current working dir
 
+function load_config_file {
+
+if [ -z "${config_file}" ] || ! [ -f "${config_file}" ]; then
+
+    if [ -f "${game_directory}/mount_disk.conf" ]; then
+        config_file="$game_directory/mount_disk.conf"
+    elif [ -f "$script_dir/mount_disk.conf" ]; then
+        config_file="$script_dir/mount_disk.conf"
+    else
+        echo "no config file, please specify -i and -n"
+    fi
+fi
+
+# try sourcing the config file and setting the variables, disable shellchecks SC1090
+#shellcheck disable=1090
+if [ -f "${config_file}" ]; then
+    source "${config_file}"
+    if [ -n "${c_image}" ] && [ -z "${image_file}" ]; then
+        image_file="${c_image}"
+    fi
+    if [ -n "${c_name}" ] && [ -z "${name}" ]; then
+        name="${c_name}"
+    fi
+    if [ -n "${c_cdemu}" ] && [ "${use_cdemu}" != "${c_cdemu}" ]; then
+        use_cdemu="${c_cdemu}"
+    fi
+fi
+
+
+#check if image_file empty and return error
+if [ -z "${image_file}" ]; then
+    echo "No image file specified"
+    exit 6
+fi
+#set name to the basename of the image file without the extension if name is unset
+if [ -z "${name}" ]; then
+    echo "name is empty, script will attempt to use default name which is $(basename "${image_file}")"
+    name="$(basename "${image_file}")"
+    name="${name%.*}"
+fi
+
+}
 
 function print_help {
             echo "USAGE: "mount_disk.sh -i "image_file" -n "name" [-e] [-c "config_file"]
@@ -24,6 +66,22 @@ function print_help {
             exit 0
 }
 
+function parse_commandline {
+
+while getopts "c:i:n:g:eh" optchar; do
+    case "${optchar}" in
+        c) echo "Trying to use config file: ${OPTARG}"; config_file="${OPTARG}";;
+        i) echo "using image file: ${OPTARG}"; image_file="${OPTARG}";;
+        n) echo "using name ${OPTARG}"; name="${OPTARG}";;
+        h) print_help ;;
+        e) echo "USING CDEMU, please make sure sr0 is not loaded"; use_cdemu=true ;;
+        g) echo "game directory is ${OPTARG}"; game_directory="${OPTARG}";;
+        *) echo "Unknown parameter!"; print_help;;
+    esac
+    echo loop
+done
+echo we were here
+}
 
 function mount_udisks {
     if [ -f "${image_file}" ]; then
@@ -34,8 +92,8 @@ function mount_udisks {
         exit 2
     fi
     # save loop_device and save that we did not use cdemu
-    echo "s_cdemu=false" > "${tmpfiledir}/${name}-loopdevice"
-    echo "loop_device=${loop_device}" >> "${tmpfiledir}/${name}-loopdevice"
+    echo "s_cdemu=false" >> "${statefile}"
+    echo "s_bdevice=${loop_device}" >> "${statefile}"
 }
 
 function mount_cdemu {
@@ -62,13 +120,13 @@ function mount_cdemu {
     sleep 1s # sleep for a second, so that the cdemu reports the image mounted
     udisksctl mount -b "/dev/sr0"
     # save mountpoint for unmounter and tell that we used cdemu
-    echo "s_cdemu=false" > "${tmpfiledir}/${name}-loopdevice"
-    echo "mount_point=/dev/sr0" >> "${tmpfiledir}/${name}-loopdevice"
+    echo "s_cdemu=true" >> "${statefile}"
+    echo "s_bdevice=/dev/sr0" >> "${statefile}"
 }
-
+# we had this in a function call, this was never gonna work....
 while getopts "c:i:n:g:eh" optchar; do
     case "${optchar}" in
-        c) echo "Trying to use config file: ${OPTARG}"; config_file="${OPTARG}"; break;;
+        c) echo "Trying to use config file: ${OPTARG}"; config_file="${OPTARG}";;
         i) echo "using image file: ${OPTARG}"; image_file="${OPTARG}";;
         n) echo "using name ${OPTARG}"; name="${OPTARG}";;
         h) print_help ;;
@@ -76,47 +134,25 @@ while getopts "c:i:n:g:eh" optchar; do
         g) echo "game directory is ${OPTARG}"; game_directory="${OPTARG}";;
         *) echo "Unknown parameter!"; print_help;;
     esac
+    echo loop
 done
 
-if [ -z "${config_file}" ] || ! [ -f "${config_file}" ]; then
+load_config_file
 
-    if [ -f "${game_directory}/mount_disk.conf" ]; then
-        config_file="$game_directory/mount_disk.conf"
-    elif [ -f "$script_dir/mount_disk.conf" ]; then
-        config_file="$script_dir/mount_disk.conf"
-    else
-        echo "no config file, please specify -i and -n"
-    fi
-fi
-
-# try sourcing the config file and setting the variables, disable shllchecks SC1090
-#shellcheck disable=1090
-if [ -f "${config_file}" ]; then
-    source "${config_file}"
-    if [ -n "${c_image}" ]; then
-        image_file="${c_image}"
-    fi
-    if [ -n "${c_game_directory}" ]; then
-        game_directory="${c_game_directory}"
-    fi
-    if [ -n "${c_name}" ]; then
-        name="${c_name}"
-    fi
-    if [ -n "${c_cdemu}" ]; then
-        use_cdemu="${c_cdemu}"
-    fi
-fi
-
+#check if image_file empty and return error
 if [ -z "${image_file}" ]; then
     echo "No image file specified"
     exit 6
 fi
-
+#set name to the basename of the image file without the extension
 if [ -z "${name}" ]; then
     echo "name is empty, script will attempt to use default name which is $(basename "${image_file}")"
     name="$(basename "${image_file}")"
+    name="${name%.*}"
 fi
+statefile="${tmpfiledir}/${name}-state"
 
+echo "#!/bin/bash" > "${statefile}"
 if [ "${use_cdemu}" == "true" ]; then
     mount_cdemu
 else
