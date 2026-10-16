@@ -28,9 +28,22 @@ if [ -z "${config_file}" ] || ! [ -f "${config_file}" ]; then
     fi
 fi
 
+
+# clean config file of anything we don't want (arbitrary execution)
+
 # try sourcing the config file and setting the variables, disable shellchecks SC1090
 #shellcheck disable=1090
 if [ -f "${config_file}" ]; then
+    # check if the file contains something we don't want
+    config_file_secured="${config_file}-s"
+    if grep -E -q -v '^#|^[^ ]*=[^;]*' "$config_file"; then
+        echo "Config file is unclean, cleaning it..." >&2
+        # filter the original to a new file
+        grep -E '^#|^[^ ]*=[^;&]*'  "$config_file" > "$config_file_secured"
+        rm "$config_file" # delete the config file
+        mv "$config_file_secured" "$config_file" # and mv our config file there instead
+    fi
+
     source "${config_file}"
     if [ -n "${c_image}" ] && [ -z "${image_file}" ]; then
         image_file="${c_image}"
@@ -152,7 +165,7 @@ if [ -z "${name}" ]; then
 fi
 statefile="${tmpfiledir}/${name}-state"
 
-echo "#!/bin/bash" > "${statefile}"
+
 if [ "${use_cdemu}" == "true" ]; then
     mount_cdemu
 else

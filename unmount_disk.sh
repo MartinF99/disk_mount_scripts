@@ -46,6 +46,17 @@ function load_configfile {
             return
         fi
     fi
+
+    config_file_secured="${config_file}-s"
+    if grep -E -q -v '^#|^[^ ]*=[^;]*' "$config_file"; then
+        echo "Config file is unclean, cleaning it..." >&2
+        # filter the original to a new file
+        grep -E '^#|^[^ ]*=[^;&]*'  "$config_file" > "$config_file_secured"
+        rm "$config_file" # delete the config file
+        mv "$config_file_secured" "$config_file" # and mv our config file there instead
+    fi
+
+
 #shellcheck disable=1090
     source "${config_file}"
 
@@ -75,6 +86,16 @@ function load_state {
         echo "No statefile found, doing nothing"
         exit 5
     fi
+
+    statefile_secured="${statefile}-s"
+    if grep -E -q -v '^#|^[^ ]*=[^;]*' "$statefile"; then
+        echo "Config file is unclean, cleaning it..." >&2
+        # filter the original to a new file
+        grep -E '^#|^[^ ]*=[^;&]*'  "$statefile" > "$statefile_secured"
+        rm "$statefile" # delete the config file
+        mv "$statefile_secured" "$statefile" # and replace our state file
+    fi
+
 
     source "$statefile"
 }
